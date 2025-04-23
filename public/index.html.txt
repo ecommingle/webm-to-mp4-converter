@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WebM to MP4 Converter</title>
+</head>
+<body style="text-align: center; font-family: sans-serif; margin-top: 40px;">
+  <h2>WebM to MP4 Converter</h2>
+  <input type="file" id="fileInput" accept=".webm" />
+  <button onclick="startConversion()">Convert</button>
+  <div id="status"></div>
+  <a id="download" href="#" target="_blank" style="display:none;">Download MP4</a>
+
+  <script>
+    async function startConversion() {
+      const fileInput = document.getElementById('fileInput');
+      const status = document.getElementById('status');
+      const download = document.getElementById('download');
+
+      if (!fileInput.files.length) {
+        alert('Please upload a WebM file.');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('webm', fileInput.files[0]);
+
+      status.textContent = "Uploading and converting...";
+
+      const res = await fetch('/convert', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        status.textContent = "Conversion failed: " + data.error;
+        return;
+      }
+
+      checkStatus(data, data.api_url);
+    }
+
+    async function checkStatus(data, api_url) {
+      const status = document.getElementById('status');
+      const download = document.getElementById('download');
+
+      const res = await fetch('/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data, api_url })
+      });
+
+      const result = await res.json();
+
+      if (!result.finished) {
+        status.textContent = "Still converting... Checking again in 2s.";
+        setTimeout(() => checkStatus(data, api_url), 2000);
+        return;
+      }
+
+      const url = `${api_url}/${result.files[0].url.replace(/^\/+/, '')}`;
+      status.textContent = "Conversion complete!";
+      download.href = url;
+      download.style.display = "inline-block";
+      download.textContent = "Download MP4";
+    }
+  </script>
+</body>
+</html>
