@@ -1,70 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>WebM to MP4 Converter</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebM to MP4 Converter</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; background-color: #f7f7f7; display: flex; justify-content: center; align-items: center; min-height: 100vh; color: #333; }
+        .container { background-color: white; border-radius: 10px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); padding: 40px; width: 80%; max-width: 500px; text-align: center; }
+        h1 { font-size: 2.5rem; color: #4CAF50; margin-bottom: 20px; }
+        p { font-size: 1.1rem; margin-bottom: 30px; color: #555; }
+        input[type="file"] { display: none; }
+        label { background-color: #4CAF50; color: white; padding: 12px 30px; border-radius: 8px; font-size: 1.2rem; cursor: pointer; transition: background-color 0.3s ease; }
+        label:hover { background-color: #45a049; }
+        button { margin-top: 20px; padding: 12px 25px; background-color: #2196F3; color: white; font-size: 1rem; border: none; border-radius: 5px; cursor: pointer; transition: background-color 0.3s ease; }
+        button:hover { background-color: #1976D2; }
+        .success-message { font-size: 1.1rem; color: #4CAF50; margin-top: 20px; }
+        .error-message { font-size: 1.1rem; color: #F44336; margin-top: 20px; }
+    </style>
 </head>
-<body style="text-align: center; font-family: sans-serif; margin-top: 40px;">
-  <h2>WebM to MP4 Converter</h2>
-  <input type="file" id="fileInput" accept=".webm" />
-  <button onclick="startConversion()">Convert</button>
-  <div id="status"></div>
-  <a id="download" href="#" target="_blank" style="display:none;">Download MP4</a>
+<body>
+    <div class="container">
+        <h1>WebM to MP4 Converter</h1>
+        <p>Upload your WebM file to convert it to MP4 format.</p>
 
-  <script>
-    async function startConversion() {
-      const fileInput = document.getElementById('fileInput');
-      const status = document.getElementById('status');
-      const download = document.getElementById('download');
+        <input type="file" id="fileInput" accept="video/webm">
+        <label for="fileInput">Choose WebM File</label>
+        <br>
+        <button id="convertBtn">Convert to MP4</button>
 
-      if (!fileInput.files.length) {
-        alert('Please upload a WebM file.');
-        return;
-      }
+        <p id="message"></p>
+    </div>
 
-      const formData = new FormData();
-      formData.append('webm', fileInput.files[0]);
+    <script>
+        const convertBtn = document.getElementById('convertBtn');
+        const fileInput = document.getElementById('fileInput');
+        const message = document.getElementById('message');
 
-      status.textContent = "Uploading and converting...";
+        convertBtn.addEventListener('click', async function() {
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showMessage('Please select a WebM file to convert.', 'error');
+                return;
+            }
 
-      const res = await fetch('/convert', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
+            if (file.type !== 'video/webm') {
+                showMessage('Only WebM files are allowed!', 'error');
+                return;
+            }
 
-      if (data.error) {
-        status.textContent = "Conversion failed: " + data.error;
-        return;
-      }
+            showMessage('Converting your file, please wait...', 'info');
 
-      checkStatus(data, data.api_url);
-    }
+            try {
+                const formData = new FormData();
+                formData.append('webmFile', file);
 
-    async function checkStatus(data, api_url) {
-      const status = document.getElementById('status');
-      const download = document.getElementById('download');
+                // Call the backend to handle conversion
+                const response = await fetch('http://localhost:3000/convert', {
+                    method: 'POST',
+                    body: formData
+                });
 
-      const res = await fetch('/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data, api_url })
-      });
+                if (!response.ok) {
+                    throw new Error('Conversion failed');
+                }
 
-      const result = await res.json();
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('Conversion successful! Your MP4 is ready. <a href="' + result.mp4Url + '" target="_blank">Download MP4</a>', 'success');
+                } else {
+                    showMessage('Conversion failed. Please try again.', 'error');
+                }
+            } catch (error) {
+                showMessage('An error occurred: ' + error.message, 'error');
+            }
+        });
 
-      if (!result.finished) {
-        status.textContent = "Still converting... Checking again in 2s.";
-        setTimeout(() => checkStatus(data, api_url), 2000);
-        return;
-      }
-
-      const url = `${api_url}/${result.files[0].url.replace(/^\/+/, '')}`;
-      status.textContent = "Conversion complete!";
-      download.href = url;
-      download.style.display = "inline-block";
-      download.textContent = "Download MP4";
-    }
-  </script>
+        function showMessage(text, type) {
+            message.innerHTML = text;
+            message.className = type === 'success' ? 'success-message' : type === 'error' ? 'error-message' : '';
+        }
+    </script>
 </body>
 </html>
