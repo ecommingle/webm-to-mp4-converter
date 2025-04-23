@@ -1,12 +1,15 @@
 const express = require('express');
 const multer = require('multer');
+const request = require('request');
 const fs = require('fs');
 const path = require('path');
-const request = require('request');
 const cors = require('cors');
 
+// Initialize Express app
 const app = express();
-const PORT = 3000;
+const port = process.env.PORT || 3000;
+
+// Set up multer to store files in 'uploads' folder
 const upload = multer({ dest: 'uploads/' });
 
 app.use(cors());
@@ -15,54 +18,103 @@ app.use(express.json());
 
 const API_KEY = 'a1a22b31c604448fa2009592587d923d';
 
-app.post('/convert', upload.single('webm'), (req, res) => {
-  const filePath = req.file.path;
+// Endpoint to handle file upload and conversion
+app.post('/convert', upload.single('webmFile'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
 
-  request({
-    url: "https://www.webm.to/apis/",
-    method: 'get'
-  }, (err, apiRes, body) => {
-    if (err) return res.status(500).send("Error getting API URL");
+    // File path of the uploaded WebM file
+    const filePath = path.join(__dirname, 'uploads', req.file.filename);
+    const convertTo = 'mp4'; // Desired output format (MP4)
 
-    const api_url = JSON.parse(body).api;
+    // Call the WebM to MP4 conversion API
+    convertFiles([filePath], convertTo, (error, result) => {
+        if (error) {
+            return res.status(500).json({ success: false, message: 'Conversion failed' });
+        }
 
-    const formData = {
-      'lang': 'en',
-      'convert_to': 'mp4',
-      'files': fs.createReadStream(filePath)
-    };
+        // Return the download URL of the converted file
+        res.json({ success: true, mp4Url: result });
+    });
+});
+
+// Function to handle API integration with WebM to MP4 service
+function convertFiles(fileList, convertTo, callback) {
+    // Get API URL
+    request({ url: "https://www.webm.to/apis/", method: 'GET' }, function (err, res, body) {
+        if (err) {
+            return callback(err, null);
+        }
+
+        let apiUrl = JSON.parse(body).api;
+
+        let formData = {
+            'lang': 'en',
+            'convert_to': convertTo
+        };
+
+        // Attach uploaded file to the request
+        fileList.forEach((file) => {
+            formData['files'] = fs.createReadStream(file);
+        });
+
+        // Make the conversion request
+        request({
+            url: `${apiUrl}/v1/convert/`,
+            method: 'POST',
+            formData: formData,
+            headers: {
+                "Authorization": "your-api-key-here", // Replace with your API key
+                "Content-Type": "multipart/form-data",
+            }
+        }, function (err, res, body) {
+            if (err) {
+                return callback(err, null);
+            }
+
+            let data = JSON.parse(body);
+            getResults(data, apiUrl, callback);
+        });
+    });
+}
+
+// Function to poll the conversion status and get results
+function getResults(data, apiUrl, callback) {
+    if (data.error) {
+        return callback(data.error, null);
+    }
 
     request({
-      url: `${api_url}/v1/convert/`,
-      method: 'post',
-      headers: {
-        'Authorization': API_KEY
-      },
-      formData: formData
-    }, (err, convRes, convBody) => {
-      if (err) return res.status(500).send("Error submitting file");
+        url: `${apiUrl}/v1/results/`,
+        method: 'POST',
+        formData: data
+    }, function (err, res, body) {
+        if (err) {
+            return callback(err, null);
+        }
 
-      const convData = JSON.parse(convBody);
-      if (convData.error) return res.status(400).json(convData);
+        let response = JSON.parse(body);
 
-      res.json({ ...convData, api_url });
+        if (!response.finished) {
+            // If the conversion is not finished, wait and retry
+            setTimeout(function () {
+                getResults(data, apiUrl, callback);
+            }, 1000);
+            return;
+        }
+
+        // Once conversion is finished, return the download URLs
+        let downloadUrl = response.files[0].url;
+        if (downloadUrl.startsWith('/')) {
+            downloadUrl = downloadUrl.substring(1);
+        }
+
+        callback(null, `${apiUrl}/${downloadUrl}`);
     });
-  });
-});
+}
 
-app.post('/check', (req, res) => {
-  const { data, api_url } = req.body;
-
-  request({
-    url: `${api_url}/v1/results/`,
-    method: 'post',
-    formData: data
-  }, (e, r, body) => {
-    const result = JSON.parse(body);
-    res.json(result);
-  });
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Start the server
+app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
 });
